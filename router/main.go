@@ -63,14 +63,14 @@ func main() {
 		(&structHandler{}).Handler,
 	)
 
-	// // Handler level middleware is only executed for a specific handler
-	// // Such middleware can be added the same way the router level ones
-	// handler.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
-	// 	return func(message *message.Message) ([]*message.Message, error) {
-	// 		log.Println("^^^^^^^ executing handler specific middleware for ", message.UUID)
-	// 		return h(message)
-	// 	}
-	// })
+	// Handler level middleware is only executed for a specific handler
+	// Such middleware can be added the same way the router level ones
+	handler.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
+		return func(message *message.Message) ([]*message.Message, error) {
+			log.Println("^^^^^^^ executing handler specific middleware for ", message.UUID)
+			return h(message)
+		}
+	})
 
 	// just for debug, we are printing all messages received on `incoming_messages_topic`
 	router.AddNoPublisherHandler(
