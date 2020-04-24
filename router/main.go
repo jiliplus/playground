@@ -3,10 +3,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -54,9 +53,6 @@ func main() {
 	// You can replace it with any Pub/Sub implementation, it will work the same.
 	pubSub := gochannel.NewGoChannel(gochannel.Config{}, logger)
 
-	// Producing some incoming messages in background
-	go publishMessages(pubSub)
-
 	// AddHandler returns a handler which can be used to add handler level middleware
 	handler := router.AddHandler(
 		"struct_handler",          // handler name, must be unique
@@ -64,18 +60,17 @@ func main() {
 		pubSub,
 		"outgoing_messages_topic", // topic to which we will publish events
 		pubSub,
-		structHandler{}.Handler,
+		(&structHandler{}).Handler,
 	)
 
-	// Handler level middleware is only executed for a specific handler
-	// Such middleware can be added the same way the router level ones
-	handler.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
-		return func(message *message.Message) ([]*message.Message, error) {
-			log.Println("executing handler specific middleware for ", message.UUID)
-
-			return h(message)
-		}
-	})
+	// // Handler level middleware is only executed for a specific handler
+	// // Such middleware can be added the same way the router level ones
+	// handler.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
+	// 	return func(message *message.Message) ([]*message.Message, error) {
+	// 		log.Println("^^^^^^^ executing handler specific middleware for ", message.UUID)
+	// 		return h(message)
+	// 	}
+	// })
 
 	// just for debug, we are printing all messages received on `incoming_messages_topic`
 	router.AddNoPublisherHandler(
@@ -93,32 +88,39 @@ func main() {
 		printMessages,
 	)
 
+	// Producing some incoming messages in background
+	go publishMessages(pubSub)
+
 	// Now that all handlers are registered, we're running the Router.
 	// Run is blocking while the router is running.
 	ctx := context.Background()
 	if err := router.Run(ctx); err != nil {
 		panic(err)
 	}
+
 }
 
 func publishMessages(publisher message.Publisher) {
-	for {
+	// for {
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second)
 		msg := message.NewMessage(watermill.NewUUID(), []byte("Hello, world!"))
 		middleware.SetCorrelationID(watermill.NewUUID(), msg)
 
+		fmt.Println()
 		log.Printf("sending message %s, correlation id: %s\n", msg.UUID, middleware.MessageCorrelationID(msg))
 
 		if err := publisher.Publish("incoming_messages_topic", msg); err != nil {
 			panic(err)
 		}
 
-		time.Sleep(time.Second)
+		// }
 	}
 }
 
 func printMessages(msg *message.Message) error {
 	fmt.Printf(
-		"\n> Received message: %s\n> %s\n> metadata: %v\n\n",
+		"\n>> message printer\n> Received message: %s\n> %s\n> metadata: %v\n\n",
 		msg.UUID, string(msg.Payload), msg.Metadata,
 	)
 	return nil
@@ -126,14 +128,16 @@ func printMessages(msg *message.Message) error {
 
 type structHandler struct {
 	// we can add some dependencies here
+	uuids []string
 }
 
-func (s structHandler) Handler(msg *message.Message) ([]*message.Message, error) {
-	if rand.Int()%2 == 0 {
-		log.Println("structHandler received message", msg.UUID)
-		msg = message.NewMessage(watermill.NewUUID(), []byte("message produced by structHandler"))
-		return message.Messages{msg}, nil
+func (s *structHandler) Handler(msg *message.Message) ([]*message.Message, error) {
+	s.uuids = append(s.uuids, msg.UUID)
+	if len(s.uuids) < 10 {
+		return nil, nil
 	}
-	return nil, errors.New("this is a error")
-
+	log.Printf("received messages: %v\n", s.uuids)
+	msg = message.NewMessage(watermill.NewUUID(), []byte(strings.Join(s.uuids, "\n")))
+	s.uuids = make([]string, 0, 10)
+	return message.Messages{msg}, nil
 }
